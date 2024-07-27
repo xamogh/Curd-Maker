@@ -13,7 +13,6 @@ const device = new TuyAPI({
   key: process.env.TUYA_DEVICE_KEY,
 });
 
-// Connect to the device
 function connectDevice() {
   return new Promise((resolve, reject) => {
     device.find().then(() => {
@@ -36,23 +35,6 @@ function connectDevice() {
   });
 }
 
-// Toggle the device state
-async function toggleDevice() {
-  try {
-    const status = await device.get({ schema: true });
-    const currentState = status.dps["1"];
-    console.log(`Current state: ${currentState}`);
-
-    const newState = !currentState;
-    await device.set({ dps: "1", set: newState });
-
-    console.log(`Device turned ${newState ? "on" : "off"}`);
-  } catch (error) {
-    console.log("Error toggling device:", error);
-  }
-}
-
-// Turn the device on
 async function turnOn() {
   try {
     await device.set({ dps: "1", set: true });
@@ -62,7 +44,6 @@ async function turnOn() {
   }
 }
 
-// Turn the device off
 async function turnOff() {
   try {
     await device.set({ dps: "1", set: false });
@@ -77,10 +58,7 @@ async function main() {
   try {
     await connectDevice();
 
-    // await toggleDevice();
-    // await new Promise((resolve) => setTimeout(resolve, 5000)); // Wait for 5 seconds
     await turnOn(); // Turn the device on
-    // await new Promise((resolve) => setTimeout(resolve, 5000)); // Wait for 5 seconds
     // await turnOff(); // Turn the device off
   } catch (error) {
     console.log("An error occurred:", error);
