@@ -1,73 +1,61 @@
-#include <Arduino.h>
+#include <ESP8266WiFi.h>
 #include <OneWire.h>
 #include <DallasTemperature.h>
+#include "env.h"
 
-const int oneWireBus = 4; // GPIO 4 (D2 on NodeMCU)
-
+const int oneWireBus = 4; // GPIO pin D2 on NodeMCU
 OneWire oneWire(oneWireBus);
-
 DallasTemperature sensors(&oneWire);
-
-DeviceAddress devAddress;
-
-void printAddress(DeviceAddress deviceAddress)
-{
-  for (uint8_t i = 0; i < 8; i++)
-  {
-    if (deviceAddress[i] < 16)
-      Serial.print("0");
-    Serial.print(deviceAddress[i], HEX);
-  }
-}
 
 void setup()
 {
-  Serial.begin(9600);
-  Serial.println("DS18B20 Temperature Sensor Test");
-
+  Serial.begin(115200);
+  delay(100);
+  Serial.println("\nNodeMCU Temperature Sensor");
+  Serial.print("Connecting to WiFi: ");
+  Serial.println(WIFI_SSID);
+  WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
+  while (WiFi.status() != WL_CONNECTED)
+  {
+    delay(500);
+    Serial.print(".");
+  }
+  Serial.println("\nWiFi connected");
+  Serial.print("NodeMCU IP address: ");
+  Serial.println(WiFi.localIP());
   sensors.begin();
-
-  Serial.print("Locating devices...");
-  Serial.print("Found ");
-  Serial.print(sensors.getDeviceCount(), DEC);
-  Serial.println(" devices.");
-
-  Serial.print("Parasite power is: ");
-  if (sensors.isParasitePowerMode())
-    Serial.println("ON");
-  else
-    Serial.println("OFF");
-
-  if (!sensors.getAddress(devAddress, 0))
-  {
-    Serial.println("Unable to find address for Device 0");
-  }
-  else
-  {
-    Serial.print("Device 0 Address: ");
-    printAddress(devAddress);
-    Serial.println();
-  }
 }
 
 void loop()
 {
-  Serial.print("Requesting temperatures...");
+  Serial.println("\n------- Reading temperature and sending data -------");
   sensors.requestTemperatures();
-  Serial.println("DONE");
-
-  float tempC = sensors.getTempCByIndex(0);
-
-  if (tempC != DEVICE_DISCONNECTED_C)
+  float temperatureC = sensors.getTempCByIndex(0);
+  if (temperatureC == DEVICE_DISCONNECTED_C)
   {
-    Serial.print("Temperature for Device 0: ");
-    Serial.print(tempC);
-    Serial.println("°C");
+    Serial.println("Error reading temperature!");
+    delay(5000);
+    return;
   }
-  else
-  {
-    Serial.println("Error: Could not read temperature data");
-  }
+  Serial.print("Temperature: ");
+  Serial.print(temperatureC);
+  Serial.println("°C");
 
-  delay(5000);
+  WiFiClient client;
+  Serial.print("Connecting to ");
+  Serial.println(SERVER_HOST);
+  if (!client.connect(SERVER_HOST, SERVER_PORT))
+  {
+    Serial.println("Connection failed");
+    delay(5000);
+    return;
+  }
+  Serial.println("Connected successfully!");
+  String data = "Temperature: " + String(temperatureC) + "°C";
+  client.println(data);
+  Serial.print("Sent: ");
+  Serial.println(data);
+  Serial.println("Closing connection");
+  client.stop();
+  delay(30000);
 }
