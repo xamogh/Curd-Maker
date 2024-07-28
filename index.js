@@ -35,6 +35,11 @@ function connectDevice() {
     device.on("disconnected", () => {
       console.log("Disconnected from Tuya device.");
     });
+
+    device.on("data", (data) => {
+      deviceState = data.dps["1"];
+      console.log(`Device state updated: ${deviceState ? "on" : "off"}`);
+    });
   });
 }
 
@@ -55,18 +60,14 @@ async function setDeviceState(turnOn) {
 // TCP server to receive control flags from ESP8266
 const server = net.createServer((socket) => {
   console.log("ESP8266 connected from:", socket.remoteAddress);
-
   let buffer = "";
-
   socket.on("data", (data) => {
     buffer += data.toString();
     let index;
     while ((index = buffer.indexOf("\n")) !== -1) {
       const controlFlag = buffer.substring(0, index).trim();
       buffer = buffer.substring(index + 1);
-
       console.log(`Received control flag: ${controlFlag}`);
-
       if (controlFlag === "ON") {
         setDeviceState(true);
       } else if (controlFlag === "OFF") {
@@ -78,11 +79,9 @@ const server = net.createServer((socket) => {
       }
     }
   });
-
   socket.on("end", () => {
     console.log("ESP8266 disconnected");
   });
-
   socket.on("error", (err) => {
     console.log("Socket error:", err);
   });
@@ -96,14 +95,17 @@ async function main() {
     server.listen(PORT, () => {
       console.log(`Server listening on port ${PORT}`);
     });
-
     server.on("error", (err) => {
       console.log("Server error:", err);
     });
-
     server.on("connection", (socket) => {
       console.log("New connection from:", socket.remoteAddress);
     });
+
+    // Request device status every 60 seconds
+    setInterval(() => {
+      device.get({ dps: "1" });
+    }, 60000);
   } catch (error) {
     console.log("An error occurred:", error);
   }
