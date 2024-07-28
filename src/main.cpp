@@ -106,7 +106,7 @@ void sendTemperature(float temperature)
     if (client.connect(SERVER_HOST, SERVER_PORT))
     {
       Serial.println("Connected successfully!");
-      String data = "Temperature: " + String(temperature) + "°C";
+      String data = String(temperature);
       client.println(data);
       Serial.print("Sent: ");
       Serial.println(data);
