@@ -12,16 +12,22 @@ const int MAX_SERVER_ATTEMPTS = 3;
 const unsigned long RETRY_INTERVAL = 5000;
 const unsigned long MEASUREMENT_INTERVAL = 5000;
 
+// Temperature range for L. reuteri yogurt (in Celsius)
+const float MIN_TEMP = 36.0;
+const float MAX_TEMP = 38.0;
+
+WiFiClient client;
+
 void setupWiFi();
 float readTemperature();
-void sendTemperature(float temperature);
+bool connectToServer();
+void sendControlFlag(const String &flag);
 
 void setup()
 {
   Serial.begin(115200);
   delay(100);
-  Serial.println("\nNodeMCU Temperature Sensor");
-
+  Serial.println("\nNodeMCU Temperature Control for L. reuteri Yogurt");
   setupWiFi();
   sensors.begin();
 }
@@ -29,6 +35,7 @@ void setup()
 void loop()
 {
   static unsigned long lastMeasurementTime = 0;
+  static String lastSentFlag = "";
   unsigned long currentTime = millis();
 
   if (currentTime - lastMeasurementTime >= MEASUREMENT_INTERVAL)
@@ -44,7 +51,28 @@ void loop()
     float temperature = readTemperature();
     if (temperature != DEVICE_DISCONNECTED_C)
     {
-      sendTemperature(temperature);
+      String flag;
+      if (temperature < MIN_TEMP)
+      {
+        flag = "ON";
+      }
+      else if (temperature > MAX_TEMP)
+      {
+        flag = "OFF";
+      }
+      else
+      {
+        flag = "MAINTAIN";
+      }
+
+      if (flag != lastSentFlag)
+      {
+        if (connectToServer())
+        {
+          sendControlFlag(flag);
+          lastSentFlag = flag;
+        }
+      }
     }
   }
 }
@@ -54,7 +82,6 @@ void setupWiFi()
   int attempts = 0;
   Serial.print("Connecting to WiFi: ");
   Serial.println(WIFI_SSID);
-
   WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
   while (WiFi.status() != WL_CONNECTED && attempts < MAX_WIFI_ATTEMPTS)
   {
@@ -62,7 +89,6 @@ void setupWiFi()
     Serial.print(".");
     attempts++;
   }
-
   if (WiFi.status() == WL_CONNECTED)
   {
     Serial.println("\nWiFi connected");
@@ -80,47 +106,79 @@ float readTemperature()
   Serial.println("\n------- Reading temperature -------");
   sensors.requestTemperatures();
   float temperatureC = sensors.getTempCByIndex(0);
-
   if (temperatureC == DEVICE_DISCONNECTED_C)
   {
     Serial.println("Error: Temperature sensor disconnected or malfunctioning!");
     return DEVICE_DISCONNECTED_C;
   }
-
   Serial.print("Temperature: ");
   Serial.print(temperatureC);
   Serial.println("°C");
   return temperatureC;
 }
 
-void sendTemperature(float temperature)
+bool connectToServer()
 {
-  WiFiClient client;
-  int attempts = 0;
-
-  while (attempts < MAX_SERVER_ATTEMPTS)
+  if (!client.connected())
   {
     Serial.print("Connecting to server: ");
     Serial.println(SERVER_HOST);
-
     if (client.connect(SERVER_HOST, SERVER_PORT))
     {
       Serial.println("Connected successfully!");
-      String data = String(temperature);
-      client.println(data);
-      Serial.print("Sent: ");
-      Serial.println(data);
-      client.stop();
-      Serial.println("Connection closed");
-      return;
+      return true;
     }
     else
     {
-      Serial.println("Connection failed. Retrying...");
-      attempts++;
-      delay(RETRY_INTERVAL);
+      Serial.println("Connection failed. Will retry on next loop.");
+      return false;
     }
   }
-
-  Serial.println("Failed to connect to the server after multiple attempts.");
+  return true;
 }
+
+void sendControlFlag(const String &flag)
+{
+  if (client.connected())
+  {
+    client.println(flag);
+    Serial.print("Sent control flag: ");
+    Serial.println(flag);
+  }
+  else
+  {
+    Serial.println("Error: Client disconnected. Couldn't send flag.");
+  }
+}
+
+// void sendTemperature(float temperature)
+// {
+//   WiFiClient client;
+//   int attempts = 0;
+
+//   while (attempts < MAX_SERVER_ATTEMPTS)
+//   {
+//     Serial.print("Connecting to server: ");
+//     Serial.println(SERVER_HOST);
+
+//     if (client.connect(SERVER_HOST, SERVER_PORT))
+//     {
+//       Serial.println("Connected successfully!");
+//       String data = String(temperature);
+//       client.println(data);
+//       Serial.print("Sent: ");
+//       Serial.println(data);
+//       client.stop();
+//       Serial.println("Connection closed");
+//       return;
+//     }
+//     else
+//     {
+//       Serial.println("Connection failed. Retrying...");
+//       attempts++;
+//       delay(RETRY_INTERVAL);
+//     }
+//   }
+
+//   Serial.println("Failed to connect to the server after multiple attempts.");
+// }
