@@ -6,12 +6,13 @@
     <title>Yogurt Temperature Control</title>
     <script src="/socket.io/socket.io.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns/dist/chartjs-adapter-date-fns.bundle.min.js"></script>
   </head>
   <body>
     <h1>Yogurt Temperature Control</h1>
     <div>
-      <p>Current Temperature: <span id="currentTemp"></span>°C</p>
-      <p>Device Status: <span id="deviceStatus"></span></p>
+      <p>Current Temperature: <span id="currentTemp">N/A</span>°C</p>
+      <p>Device Status: <span id="deviceStatus">N/A</span></p>
     </div>
     <div>
       <h2>Set Temperature Range</h2>
@@ -37,14 +38,41 @@
       });
 
       socket.on("tempUpdate", (data) => {
-        document.getElementById("currentTemp").textContent =
-          data.temperature.toFixed(2);
-        updateDeviceStatus(data.deviceState);
-        updateChart(data.temperature);
+        console.log("Received tempUpdate:", data);
+        if (data && typeof data.temperature !== "undefined") {
+          document.getElementById("currentTemp").textContent =
+            data.temperature.toFixed(2);
+          updateDeviceStatus(data.deviceState);
+        } else {
+          console.error("Invalid tempUpdate data:", data);
+        }
       });
 
       socket.on("deviceUpdate", (data) => {
-        updateDeviceStatus(data.deviceState);
+        console.log("Received deviceUpdate:", data);
+        if (data && typeof data.deviceState !== "undefined") {
+          updateDeviceStatus(data.deviceState);
+        } else {
+          console.error("Invalid deviceUpdate data:", data);
+        }
+      });
+
+      socket.on("fullTempLog", (data) => {
+        console.log("Received fullTempLog:", data);
+        if (Array.isArray(data)) {
+          updateChartWithFullHistory(data);
+        } else {
+          console.error("Invalid fullTempLog data:", data);
+        }
+      });
+
+      socket.on("newTempData", (data) => {
+        console.log("Received newTempData:", data);
+        if (data && typeof data.temperature !== "undefined" && data.timestamp) {
+          addDataToChart(data);
+        } else {
+          console.error("Invalid newTempData:", data);
+        }
       });
 
       function updateDeviceStatus(state) {
@@ -78,7 +106,6 @@
         tempChart = new Chart(ctx, {
           type: "line",
           data: {
-            labels: [],
             datasets: [
               {
                 label: "Temperature",
@@ -91,24 +118,54 @@
           options: {
             responsive: true,
             scales: {
+              x: {
+                type: "time",
+                time: {
+                  unit: "minute",
+                  displayFormats: {
+                    minute: "HH:mm",
+                  },
+                },
+                title: {
+                  display: true,
+                  text: "Time",
+                },
+              },
               y: {
                 beginAtZero: false,
+                title: {
+                  display: true,
+                  text: "Temperature (°C)",
+                },
               },
             },
           },
         });
       }
 
-      function updateChart(temp) {
-        const now = new Date();
-        tempChart.data.labels.push(now.toLocaleTimeString());
-        tempChart.data.datasets[0].data.push(temp);
-
-        if (tempChart.data.labels.length > 20) {
-          tempChart.data.labels.shift();
-          tempChart.data.datasets[0].data.shift();
+      function updateChartWithFullHistory(data) {
+        console.log("Updating chart with full history:", data);
+        if (!tempChart) {
+          console.error("Chart not initialized");
+          return;
         }
+        tempChart.data.datasets[0].data = data.map((entry) => ({
+          x: new Date(entry.timestamp),
+          y: entry.temperature,
+        }));
+        tempChart.update();
+      }
 
+      function addDataToChart(data) {
+        console.log("Adding data to chart:", data);
+        if (!tempChart) {
+          console.error("Chart not initialized");
+          return;
+        }
+        tempChart.data.datasets[0].data.push({
+          x: new Date(data.timestamp),
+          y: data.temperature,
+        });
         tempChart.update();
       }
 

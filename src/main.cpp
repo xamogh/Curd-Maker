@@ -165,3 +165,25 @@ void sendTemperature(float temp)
 
 //   Serial.println("Failed to connect to the server after multiple attempts.");
 // }
+
+// void loop()
+// {
+//   Serial.print("Requesting temperatures...");
+//   sensors.requestTemperatures();
+//   Serial.println("DONE");
+
+//   float tempC = sensors.getTempCByIndex(0);
+
+//   if (tempC != DEVICE_DISCONNECTED_C)
+//   {
+//     Serial.print("Temperature for Device 0: ");
+//     Serial.print(tempC);
+//     Serial.println("°C");
+//   }
+//   else
+//   {
+//     Serial.println("Error: Could not read temperature data");
+//   }
+
+//   delay(5000);
+// }

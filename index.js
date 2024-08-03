@@ -60,13 +60,15 @@ const tcpServer = net.createServer((socket) => {
     if (!isNaN(temperature)) {
       console.log(`Received temperature: ${temperature}°C`);
       currentTemp = temperature;
-      tempLog.push({ timestamp: new Date(), temperature });
-
-      if (tempLog.length > 100) tempLog.shift(); // Keep only last 100 readings
+      tempLog.push({ timestamp: new Date().toISOString(), temperature });
 
       await controlTemperature(temperature);
 
       io.emit("tempUpdate", { temperature, deviceState });
+      io.emit("newTempData", {
+        timestamp: tempLog[tempLog.length - 1].timestamp,
+        temperature,
+      });
     }
   });
 
@@ -79,7 +81,6 @@ const tcpServer = net.createServer((socket) => {
   });
 });
 
-// Express routes
 app.use(express.static("public"));
 app.use(express.json());
 
@@ -104,10 +105,10 @@ app.get("/api/tempLog", (req, res) => {
   res.json(tempLog);
 });
 
-// Socket.IO
 io.on("connection", (socket) => {
   console.log("New client connected");
   socket.emit("tempUpdate", { temperature: currentTemp, deviceState });
+  socket.emit("fullTempLog", tempLog);
 });
 
 const TCP_PORT = process.env.TCP_PORT || 3000;
@@ -125,7 +126,6 @@ async function main() {
       console.log(`HTTP Server listening on port ${HTTP_PORT}`);
     });
 
-    // Listen for device state changes
     device.on("data", (data) => {
       deviceState = data.dps["1"];
       console.log(`Device state updated: ${deviceState ? "on" : "off"}`);
