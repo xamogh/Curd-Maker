@@ -1,13 +1,14 @@
 require("dotenv").config();
+const express = require("express");
+const http = require("http");
+const socketIo = require("socket.io");
+const path = require("path");
 const net = require("net");
 const TuyAPI = require("tuyapi");
 
-if (!process.env.TUYA_DEVICE_ID || !process.env.TUYA_DEVICE_KEY) {
-  console.error(
-    "Error: TUYA_DEVICE_ID and TUYA_DEVICE_KEY must be set in the .env file"
-  );
-  process.exit(1);
-}
+const app = express();
+const server = http.createServer(app);
+const io = socketIo(server);
 
 const device = new TuyAPI({
   id: process.env.TUYA_DEVICE_ID,
@@ -15,97 +16,121 @@ const device = new TuyAPI({
 });
 
 let deviceState = false;
+let currentTemp = 0;
+let minTemp = 36.0;
+let maxTemp = 38.0;
+const tempLog = [];
 
-function connectDevice() {
-  return new Promise((resolve, reject) => {
-    device.find().then(() => {
-      device.connect();
-    });
-
-    device.on("connected", () => {
-      console.log("Connected to Tuya device!");
-      resolve();
-    });
-
-    device.on("error", (error) => {
-      console.log("Tuya device error!", error);
-      reject(error);
-    });
-
-    device.on("disconnected", () => {
-      console.log("Disconnected from Tuya device.");
-    });
-
-    device.on("data", (data) => {
-      deviceState = data.dps["1"];
-      console.log(`Device state updated: ${deviceState ? "on" : "off"}`);
-    });
-  });
+async function connectDevice() {
+  try {
+    await device.find();
+    await device.connect();
+    console.log("Connected to Tuya device");
+  } catch (error) {
+    console.error("Failed to connect to Tuya device:", error);
+  }
 }
 
 async function setDeviceState(turnOn) {
   if (turnOn !== deviceState) {
     try {
-      await device.set({ dps: "1", set: turnOn });
+      await device.set({ set: turnOn });
       console.log(`Device turned ${turnOn ? "on" : "off"}`);
       deviceState = turnOn;
+      io.emit("deviceUpdate", { deviceState });
     } catch (error) {
-      console.log(`Error setting device state:`, error);
+      console.error("Error setting device state:", error);
     }
-  } else {
-    console.log(`Device already ${turnOn ? "on" : "off"}`);
   }
 }
 
-// TCP server to receive control flags from ESP8266
-const server = net.createServer((socket) => {
-  console.log("ESP8266 connected from:", socket.remoteAddress);
-  let buffer = "";
-  socket.on("data", (data) => {
-    buffer += data.toString();
-    let index;
-    while ((index = buffer.indexOf("\n")) !== -1) {
-      const controlFlag = buffer.substring(0, index).trim();
-      buffer = buffer.substring(index + 1);
-      console.log(`Received control flag: ${controlFlag}`);
-      if (controlFlag === "ON") {
-        setDeviceState(true);
-      } else if (controlFlag === "OFF") {
-        setDeviceState(false);
-      } else if (controlFlag === "MAINTAIN") {
-        console.log("Maintaining current state");
-      } else {
-        console.log(`Invalid control flag: ${controlFlag}`);
-      }
+async function controlTemperature(temperature) {
+  if (temperature < minTemp && !deviceState) {
+    await setDeviceState(true);
+  } else if (temperature > maxTemp && deviceState) {
+    await setDeviceState(false);
+  }
+}
+
+const tcpServer = net.createServer((socket) => {
+  console.log("NodeMCU connected from:", socket.remoteAddress);
+
+  socket.on("data", async (data) => {
+    const temperature = parseFloat(data.toString().trim());
+    if (!isNaN(temperature)) {
+      console.log(`Received temperature: ${temperature}°C`);
+      currentTemp = temperature;
+      tempLog.push({ timestamp: new Date(), temperature });
+
+      if (tempLog.length > 100) tempLog.shift(); // Keep only last 100 readings
+
+      await controlTemperature(temperature);
+
+      io.emit("tempUpdate", { temperature, deviceState });
     }
   });
+
   socket.on("end", () => {
-    console.log("ESP8266 disconnected");
+    console.log("NodeMCU disconnected");
   });
+
   socket.on("error", (err) => {
     console.log("Socket error:", err);
   });
 });
 
-const PORT = process.env.SERVER_PORT || 3000;
+// Express routes
+app.use(express.static("public"));
+app.use(express.json());
+
+app.get("/api/status", (req, res) => {
+  res.json({ currentTemp, deviceState, minTemp, maxTemp });
+});
+
+app.post("/api/setTemp", (req, res) => {
+  const { min, max } = req.body;
+  if (min && max && min < max) {
+    minTemp = parseFloat(min);
+    maxTemp = parseFloat(max);
+    res.json({ success: true, minTemp, maxTemp });
+  } else {
+    res
+      .status(400)
+      .json({ success: false, message: "Invalid temperature range" });
+  }
+});
+
+app.get("/api/tempLog", (req, res) => {
+  res.json(tempLog);
+});
+
+// Socket.IO
+io.on("connection", (socket) => {
+  console.log("New client connected");
+  socket.emit("tempUpdate", { temperature: currentTemp, deviceState });
+});
+
+const TCP_PORT = process.env.TCP_PORT || 3000;
+const HTTP_PORT = process.env.HTTP_PORT || 3001;
 
 async function main() {
   try {
     await connectDevice();
-    server.listen(PORT, () => {
-      console.log(`Server listening on port ${PORT}`);
-    });
-    server.on("error", (err) => {
-      console.log("Server error:", err);
-    });
-    server.on("connection", (socket) => {
-      console.log("New connection from:", socket.remoteAddress);
+
+    tcpServer.listen(TCP_PORT, () => {
+      console.log(`TCP Server listening on port ${TCP_PORT}`);
     });
 
-    // Request device status every 60 seconds
-    setInterval(() => {
-      device.get({ dps: "1" });
-    }, 60000);
+    server.listen(HTTP_PORT, () => {
+      console.log(`HTTP Server listening on port ${HTTP_PORT}`);
+    });
+
+    // Listen for device state changes
+    device.on("data", (data) => {
+      deviceState = data.dps["1"];
+      console.log(`Device state updated: ${deviceState ? "on" : "off"}`);
+      io.emit("deviceUpdate", { deviceState });
+    });
   } catch (error) {
     console.log("An error occurred:", error);
   }

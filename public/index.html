@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Yogurt Temperature Control</title>
+    <script src="/socket.io/socket.io.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  </head>
+  <body>
+    <h1>Yogurt Temperature Control</h1>
+    <div>
+      <p>Current Temperature: <span id="currentTemp"></span>°C</p>
+      <p>Device Status: <span id="deviceStatus"></span></p>
+    </div>
+    <div>
+      <h2>Set Temperature Range</h2>
+      <input type="number" id="minTemp" step="0.1" placeholder="Min Temp" />
+      <input type="number" id="maxTemp" step="0.1" placeholder="Max Temp" />
+      <button onclick="setTempRange()">Set</button>
+    </div>
+    <div>
+      <h2>Temperature Log</h2>
+      <canvas id="tempChart"></canvas>
+    </div>
+
+    <script>
+      const socket = io();
+      let tempChart;
+
+      socket.on("connect", () => {
+        console.log("Connected to server");
+      });
+
+      socket.on("disconnect", () => {
+        console.log("Disconnected from server");
+      });
+
+      socket.on("tempUpdate", (data) => {
+        document.getElementById("currentTemp").textContent =
+          data.temperature.toFixed(2);
+        updateDeviceStatus(data.deviceState);
+        updateChart(data.temperature);
+      });
+
+      socket.on("deviceUpdate", (data) => {
+        updateDeviceStatus(data.deviceState);
+      });
+
+      function updateDeviceStatus(state) {
+        document.getElementById("deviceStatus").textContent = state
+          ? "ON"
+          : "OFF";
+      }
+
+      function setTempRange() {
+        const minTemp = document.getElementById("minTemp").value;
+        const maxTemp = document.getElementById("maxTemp").value;
+        fetch("/api/setTemp", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ min: minTemp, max: maxTemp }),
+        })
+          .then((response) => response.json())
+          .then((data) => {
+            if (data.success) {
+              alert("Temperature range set successfully");
+            } else {
+              alert("Failed to set temperature range");
+            }
+          });
+      }
+
+      function initChart() {
+        const ctx = document.getElementById("tempChart").getContext("2d");
+        tempChart = new Chart(ctx, {
+          type: "line",
+          data: {
+            labels: [],
+            datasets: [
+              {
+                label: "Temperature",
+                data: [],
+                borderColor: "rgb(75, 192, 192)",
+                tension: 0.1,
+              },
+            ],
+          },
+          options: {
+            responsive: true,
+            scales: {
+              y: {
+                beginAtZero: false,
+              },
+            },
+          },
+        });
+      }
+
+      function updateChart(temp) {
+        const now = new Date();
+        tempChart.data.labels.push(now.toLocaleTimeString());
+        tempChart.data.datasets[0].data.push(temp);
+
+        if (tempChart.data.labels.length > 20) {
+          tempChart.data.labels.shift();
+          tempChart.data.datasets[0].data.shift();
+        }
+
+        tempChart.update();
+      }
+
+      initChart();
+    </script>
+  </body>
+</html>
